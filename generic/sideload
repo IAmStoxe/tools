@@ -1,0 +1,98 @@
+#!/bin/bash
+#
+
+## TODO:
+# 2. Fix fallthrough to tomorrows date leaving a 0 byte file
+
+## Parameters
+ZIP=${1}
+
+## Variables
+BUILD_DATE=$(date +%Y%m%d)
+if [[ "${ZIP}" =~ \.zip$ ]];
+  then
+    DEVICE=$(echo "${ZIP}" | cut -f5 -d- | sed 's/....$//')
+    VERSION=$(echo "${ZIP}" | cut -f5 -d-)
+  else
+    DEVICE="${ZIP}"
+fi
+
+DEVICE_INITIAL_STATE=$(adb -s "${!DEVICE}" get-state)
+
+
+if [ -z "${VERSION}" ]
+  then
+    read -r -p "$(echo -e 'Which version of LineageOS? \n\b')" VERSION
+    # Assume latest LineageOS version if not specified
+  else
+    VERSION="18.1"
+fi
+
+## Check if a zip is specified, if not, download it
+#if [ -n "${ZIP}" ]
+if [[ "${ZIP}" =~ \.zip$ ]];
+  then true
+  else
+    read -r -p "$(echo -e 'What is the date of the desired build? Leaving this blank will assume todays date. \n\b')" ACTUAL_BUILD_DATE
+    if [ -z "${ACTUAL_BUILD_DATE}" ]
+      then
+        if wget -q --show-progress --backups=1 https://download.ods.ninja/Android/lineage/"${DEVICE}"/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip -O "${HOME}"/Downloads/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip
+          then true
+          else
+            # Sometimes builds display a date slightly in the future, account for that possibility
+            BUILD_DATE=$(date -j -f '%Y%m%d' -v+1d "${BUILD_DATE}" +%Y%m%d)
+            if wget -q --show-progress --backups=1 https://download.ods.ninja/Android/lineage/"${DEVICE}"/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip -O "${HOME}"/Downloads/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip
+              then true
+              else
+                rm "${HOME}"/Downloads/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip
+                echo "No build for todays date or tomorrows exists, exiting..."; exit 1
+            fi
+        fi
+      else
+        BUILD_DATE="${ACTUAL_BUILD_DATE}"
+        if wget -q --show-progress --backups=1 https://download.ods.ninja/Android/lineage/"${DEVICE}"/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip -O "${HOME}"/Downloads/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip
+          then true
+          else
+            rm "${HOME}"/Downloads/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip
+            echo "No build was found with that build date, exiting..."; exit 1
+       fi
+    fi
+fi
+
+if [[ "${ZIP}" =~ \.zip$ ]];
+  then true
+  else
+    ZIP=lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip
+fi
+
+## Check if there are multiple devices with this codename
+#if [ -n $(`eval \"\$\{"${DEVICE}2"\}\"`) ]
+#  then
+#    read -r -p "$(echo -e 'What is the number of the device you wish to flash? Leaving blank will assume device the first device. \n\b')" CUSTOM_DEVICE
+#    DEVICE="${DEVICE}""${CUSTOM_DEVICE}"
+#fi
+
+## Reboot to sideload mode
+adb -s "${!DEVICE}" root
+adb -s "${!DEVICE}" wait-for-"${DEVICE_INITIAL_STATE}" reboot sideload-auto-reboot
+
+## Sideload the zip
+adb -s "${!DEVICE}" wait-for-sideload sideload "${HOME}"/Downloads/"${ZIP}"
+
+## Make sure the device comes back up
+#sleep 45s
+#POST_STATUS=$(adb -s "${!DEVICE}" get-state)
+#if [ "${POST_STATUS}" == device ]
+#  then
+#    echo "Sideload succeeded!"
+#  elif [ "${POST_STATUS}" == recovery ]
+#    then
+#      echo "Sideload appears to have failed?"
+#  else
+#    echo "Device appears to be hung or bootlooping without ADB?"
+#fi
+
+## Post-flash cleanup
+rm "${HOME}"/Downloads/lineage-"${VERSION}"-"${BUILD_DATE}"-UNOFFICIAL-"${DEVICE}".zip
+
+exit 0
